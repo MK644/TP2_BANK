@@ -1,34 +1,22 @@
-import tkinter as tk
+from tkinter import *
+
 
 import sqlite3
 
 import random
 
-import msvcrt
-
-def saisir_cache(question):
-    print(question, end="", flush=True)
-    texte = ""
-    while True:
-        touche = msvcrt.getwch()
-        if touche in ("\r", "\n"):      # ENTRÉE
-            print()
-            return texte
-        elif touche == "\b":             # RETOUR ARRIÈRE
-            if len(texte) > 0:
-                texte = texte[:-1]
-                print("\b \b", end="", flush=True)
-        else:
-            texte += touche
-            print("*", end="", flush=True)
-
+################ connexion base de donner #########
 
 connexion = sqlite3.connect("banque.db")
 cursor = connexion.cursor()
 
-cursor.execute("CREATE TABLE IF NOT EXISTS comptes (account_number INTEGER, balance INTEGER, password TEXT, secret_phrase TEXT)")
+
+############## CREER SI PAS EXISTANT #########################33
+cursor.execute("CREATE TABLE IF NOT EXISTS comptes (num_compte INTEGER, argent INTEGER, password TEXT, phrase_mot TEXT)")
 cursor.execute("CREATE TABLE IF NOT EXISTS numeros_restants (numero INTEGER)")
 
+
+########################### NUMERO DE COMPTE #################################
 # Première fois seulement : remplir la liste des numéros
 cursor.execute("SELECT COUNT(*) FROM numeros_restants")
 nb_restants = cursor.fetchone()[0]
@@ -40,68 +28,152 @@ if nb_restants == 0 and nb_comptes == 0:
     connexion.commit()
 
 # Ta liste vient maintenant de la base
+
 cursor.execute("SELECT numero FROM numeros_restants")
 compte_num = [ligne[0] for ligne in cursor.fetchall()]
 
+
+
 ########### CONSOLE ################
-print("Bonjour :")
-print(" - Tapez A, pour vous connecter à l’Application.")
-print(" - Tapez U, pour un nouvel Utilisateur.")
 
-choix = ""
-while choix != "A" and choix != "U":
-    choix = input()
-    choix = choix.upper()
-    if choix == "U":
-        if len(compte_num) == 0:
-            print("Plus aucun numéro de compte disponible.")
-            break
+def console_debut():
+    print("Bonjour :")
+    print(" - Tapez A, pour vous connecter à l’Application.")
+    print(" - Tapez U, pour un nouvel Utilisateur.")
 
-        num_compte = random.choice(compte_num)
-        compte_num.remove(num_compte)
-        argent = random.randint(100, 500)
-        print(f"Bienvenue, voici votre numéro de compte {num_compte} ")
+    choix = ""
+    while choix != "A" and choix != "U":
+        choix = input()
+        choix = choix.upper()
+        if choix == "U":
+            if len(compte_num) == 0:
+                print("Plus aucun numéro de compte disponible.")
+                break
 
-        password = saisir_cache("Choisissez votre mot de passe et pressez sur ENTRÉE : ")
-        password_conf = saisir_cache("Confirmez votre mot de passe puis pressez sur ENTRÉE : ")
-        while password_conf != password:
-            password_conf = saisir_cache("Les mots de passe ne correspondent pas, réessayez : ")
+            num_compte = random.choice(compte_num)
+            compte_num.remove(num_compte)
+            argent = random.randint(100, 500)
+            print(f"Bienvenue, voici votre numéro de compte {num_compte} ")
 
-        voir = input("Tapez 1 pour voir le mot de passe, ou ENTRÉE pour continuer : ")
-        if voir == "1":
-            print("Votre mot de passe :", password)
+            password = input("Choisissez votre mot de passe et pressez sur ENTRÉE : ")
+            password_conf = input("Confirmez votre mot de passe puis pressez sur ENTRÉE : ")
+            while password_conf != password:
+                password_conf = input("Les mots de passe ne correspondent pas, réessayez : ")
+            print("Indiquez une phrase pour vous rappeler du mot de passe et pressez sur ENTRÉE.")
+            phrase_mot = input()
 
-        # Base de données
-        cursor.execute("DELETE FROM numeros_restants WHERE numero = ?", (num_compte,))
-        cursor.execute("INSERT INTO comptes VALUES (?, ?, ?, ?)", (num_compte, argent, password, phrase_mot))
-        connexion.commit()
 
-connexion.close()
 
-def acceuil():
-    global fenetre
+            # Base de données METTRE LES INFOS RECOLTER
+            cursor.execute("DELETE FROM numeros_restants WHERE numero = ?", (num_compte,))
+            cursor.execute("INSERT INTO comptes VALUES (?, ?, ?, ?)", (num_compte, argent, password, phrase_mot))
+            connexion.commit()
+
+        ### SI A ECRAN APPARAIT
+
+
+
+
+    connexion.close()
+
+#########MDP ADMIN ###############################################
+admin_compte = False
+password_adm = "123"
+nom_adm = "adm"
+
+
+############################ FONCTION RECOLTE BASE DE DONNER ET MODIFIER ####################
+
+
+
+    ## FONCTION RECOLTE MOTS DE PASSE CELON LE NOM DE L'utilisateur
+
+##### verificatio
+def verification_mdp_client(numero_compte, mots_depasses):
+    conn = sqlite3.connect("banque.db")
+    curs = conn.cursor()
+
+    curs.execute("SELECT password FROM comptes WHERE num_compte = ?", (int(numero_compte),))
+    resultat = curs.fetchone()   # (mot_de_passe,) ou None si le compte n'existe pas
+    conn.close()
+
+    if resultat is None:
+        return False             # compte inexistant
+    return resultat[0] == mot_de_passe
+
+def verification_mdp_admin(numero_compte, mots_depasses):
+
+
+    return numero_compte == nom_adm and password_adm == mots_depasses
+
+
+############################# CLIENT ############################
+
+def session_Admin():
+    fenetre2 = Tk()
+
+def session_client():
+    fenetre.destroy()
+    fenetre1 = Tk()
+    pass
+def accueil():
+    global fenetre, champ, champ2, Admin
     fenetre = Tk()
     fenetre.geometry("400x600")
     Label(fenetre, text="Banque Grasséenne").pack(pady=20)
     Label(fenetre, text="Type de connexion").pack()
     Label(fenetre, text="*Client *Admin").pack(pady=20)
     Label(fenetre, text="Numéro de compte").pack()
-    champ= Entry(fenetre)
+    champ = Entry(fenetre)
     champ.pack(pady=20)
-    champ.bind("<Return>",motdepass)
+    Admin=StringVar()
+    Admin.set(False)
+    Radiobutton(fenetre, text="Admin", variable=Admin, value=True).pack(anchor=W)
+    Radiobutton(fenetre, text="Client", variable=Admin, value=False).pack(anchor=W)
     def motdepass(event):
         Label(fenetre, text="Mots de passes").pack()
         champ2=Entry(fenetre)
         champ2.pack(pady=20)
-    Bouton1=Button(fenetre, text="Ouvrir la session", command=session)
-    Bouton1.pack(pady=20)
-    Bouton2=Button(fenetre, text="Mots de passes oublié ?", command=Motsdepasses_oublié)
+    champ.bind("<Return>",motdepass)
+    def connexion():
 
+        if Admin==True:
+            if verification_mdp_admin(champ.get(), champ2.get()):
+                session_Admin()
+            else:
+                erreur_connexion()
+        if Admin==False:
+            if verification_mdp_client(champ.get(), champ2.get()):
+                session_Client()
+            else:
+                erreur_connexion()
+    Bouton1 = Button(fenetre, text="Ouvrir la session", command=connexion)
+    Bouton1.pack(pady=20)
+    Bouton2 = Button(fenetre, text="Mots de passes oublié ?", command=Motsdepasses_oublié)
+    Bouton2.pack()
     fenetre.mainloop()
 
-def session():
-    fenetre.destroy()
-    pass
-def Motsdepasses():
-    pass
+
+def Motsdepasses_oublié():
+    print(champ.get())
+def erreur_connexion():
+    top = Toplevel(fenetre)                   # lié à la fenêtre principale
+    top.title("Erreur")
+    top.geometry("300x100")
+    top.resizable(0, 0)
+
+    #le bouton est empaqueté en premier pour rester tout en bas
+    Button(top, text="OK", width=8, command=top.destroy).pack(side=BOTTOM, pady=5)
+
+    Label(top, text="Renseignements d'ouverture de session erronés",
+          font=("Arial", 9, "bold"), wraplength=280).pack(pady=(8, 2))
+    Label(top, text="Veuillez vérifier vos données de connexion et réessayer",
+          wraplength=280).pack()
+
+
+
+########### BOUCLE PRINCIPALES #####################################################
+console_debut()
+accueil()
+
 
