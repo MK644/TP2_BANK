@@ -99,7 +99,7 @@ def verification_mdp_client(numero_compte, mots_depasses):
 
     if resultat is None:
         return False             # compte inexistant
-    return resultat[0] == mot_de_passe
+    return resultat[0] == mots_depasses
 
 def verification_mdp_admin(numero_compte, mots_depasses):
 
@@ -108,54 +108,6 @@ def verification_mdp_admin(numero_compte, mots_depasses):
 
 
 ############################# CLIENT ############################
-
-def session_Admin():
-    fenetre2 = Tk()
-
-def session_client():
-    fenetre.destroy()
-    fenetre1 = Tk()
-    pass
-def accueil():
-    global fenetre, champ, champ2, Admin
-    fenetre = Tk()
-    fenetre.geometry("400x600")
-    Label(fenetre, text="Banque Grasséenne").pack(pady=20)
-    Label(fenetre, text="Type de connexion").pack()
-    Label(fenetre, text="*Client *Admin").pack(pady=20)
-    Label(fenetre, text="Numéro de compte").pack()
-    champ = Entry(fenetre)
-    champ.pack(pady=20)
-    Admin=StringVar()
-    Admin.set(False)
-    Radiobutton(fenetre, text="Admin", variable=Admin, value=True).pack(anchor=W)
-    Radiobutton(fenetre, text="Client", variable=Admin, value=False).pack(anchor=W)
-    def motdepass(event):
-        Label(fenetre, text="Mots de passes").pack()
-        champ2=Entry(fenetre)
-        champ2.pack(pady=20)
-    champ.bind("<Return>",motdepass)
-    def connexion():
-
-        if Admin==True:
-            if verification_mdp_admin(champ.get(), champ2.get()):
-                session_Admin()
-            else:
-                erreur_connexion()
-        if Admin==False:
-            if verification_mdp_client(champ.get(), champ2.get()):
-                session_Client()
-            else:
-                erreur_connexion()
-    Bouton1 = Button(fenetre, text="Ouvrir la session", command=connexion)
-    Bouton1.pack(pady=20)
-    Bouton2 = Button(fenetre, text="Mots de passes oublié ?", command=Motsdepasses_oublié)
-    Bouton2.pack()
-    fenetre.mainloop()
-
-
-def Motsdepasses_oublié():
-    print(champ.get())
 def erreur_connexion():
     top = Toplevel(fenetre)                   # lié à la fenêtre principale
     top.title("Erreur")
@@ -170,10 +122,86 @@ def erreur_connexion():
     Label(top, text="Veuillez vérifier vos données de connexion et réessayer",
           wraplength=280).pack()
 
+def session_Admin():
+    fenetre2 = Tk()
+
+def session_client():
+    fenetre.destroy()
+    fenetre1 = Tk()
+    pass
+def accueil():
+    global fenetre, champ, Admin, champ2
+    fenetre = Tk()
+    fenetre.geometry("400x600")
+    Label(fenetre, text="Banque Grasséenne").pack(pady=20)
+    Label(fenetre, text="Type de connexion").pack()
+    Admin = StringVar()  # variable Tkinter, pas un booléen
+    Admin.set("client")
+
+    Radiobutton(fenetre, text="Admin", variable=Admin, value="admin").pack(anchor=CENTER)
+    Radiobutton(fenetre, text="Client", variable=Admin, value="client").pack(anchor=CENTER)
+
+    Label(fenetre, text="Numéro de compte").pack(pady=10)
+    champ = Entry(fenetre)
+    champ.pack(pady=10)
+    champ2=None
+    def motdepass(event):
+        global champ2
+        Label(fenetre, text="Mots de passes").place(relx=0.5, rely=0.4, anchor=CENTER)
+        champ2=Entry(fenetre)
+        champ2.place(relx=0.5, rely=0.45, anchor=CENTER)
+    champ.bind("<Return>",motdepass)
+    def connexion():
+        if champ2==None:
+            motdepass(None)
+        elif Admin.get()=="admin":
+            if verification_mdp_admin(champ.get(), champ2.get()):
+                session_Admin()
+            else:
+                erreur_connexion()
+        elif Admin.get()=="client":
+            if verification_mdp_client(champ.get(), champ2.get()):
+                session_client()
+            else:
+                erreur_connexion()
+    Bouton1 = Button(fenetre, text="Ouvrir la session", command=connexion)
+    Bouton1.place(relx=0.5, rely=0.6, anchor=CENTER)
+    Bouton2 = Button(fenetre, text="Mots de passes oublié ?", command=Motsdepasses_oublié)
+    Bouton2.place(relx=0.5, rely=0.67, anchor=CENTER)
+    fenetre.mainloop()
+
+
+def Motsdepasses_oublié():
+    numero = champ.get().strip()
+
+    if Admin.get() == "admin":
+        if numero == str(nom_adm):
+            print(password_adm)
+        else:
+            print("Vous n'avez pas de compte admin")
+
+    else:                                          # client
+        if not numero.isdigit() or numero == str(nom_adm):
+            print("Vous n'avez pas de compte client")
+            return
+
+        conn = sqlite3.connect("banque.db")
+        curs = conn.cursor()
+        curs.execute("SELECT password FROM comptes WHERE account_number = ?", (int(numero),))
+        resultat = curs.fetchone()                 # (mot_de_passe,) ou None
+        conn.close()
+
+        if resultat is None:
+            print("Vous n'avez pas de compte client")
+        else:
+            print(resultat[0])
+
+
+
+
+
 
 
 ########### BOUCLE PRINCIPALES #####################################################
 console_debut()
 accueil()
-
-
