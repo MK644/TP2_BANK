@@ -7,7 +7,7 @@ import random
 
 ################ connexion base de donner #########
 
-connexion = sqlite3.connect("account.db")
+connexion = sqlite3.connect("banque.db")
 cursor = connexion.cursor()
 
 
@@ -140,18 +140,34 @@ def info_compte(numero_compte):
     curs = conn.cursor()
     cur = conn.cursor()
     curs.execute("SELECT argent FROM comptes WHERE num_compte = ?", (int(numero_compte),))
-    cur.execute("SELECT*FROM transfert WHERE SENDER = ?", (int(numero_compte),))
+    cur.execute("SELECT*FROM history WHERE SENDER = ?", (int(numero_compte),))
     solde = curs.fetchone()
     historique = cur.fetchone()
     conn.close()
     return (solde, historique)
 
 def transfert(receiver, sender, amount):
-    #transaction
-    solde = ((info_compte(sender))[0])
-    if solde >= 0 :
-        print("montant insufiisant")
-        return False
+    amount = int(amount)
+    solde_s = info_compte(sender)[0][0]
+    solde_r = info_compte(receiver)[0][0]
+
+    if amount <= 0 or solde_s < amount:
+        print("montant insuffisant")
+        return
+    else:
+        conn = sqlite3.connect("banque.db")
+        curs = conn.cursor()
+        # integrer la transaction
+        curs.execute("INSERT INTO history(SENDER,RECEIVER,AMOUNT) VALUES(?,?,?)", (sender, receiver, amount))
+        # modifier
+        solde_fr = solde_r + amount
+        solde_fs = solde_s - amount
+        curs.execute("UPDATE comptes SET argent = ? WHERE num_compte = ?", (solde_fr, receiver))
+        curs.execute("UPDATE comptes SET argent = ? WHERE num_compte = ?", (solde_fs, sender))
+        conn.commit()
+        conn.close()
+
+
 
 
 
@@ -202,16 +218,19 @@ def accueil():
         champ2=Entry(fenetre)
         champ2.place(relx=0.5, rely=0.45, anchor=CENTER)
     champ.bind("<Return>",motdepass)
+
     def connexion():
-        if champ2==None:
+        global Numero_compte
+        if champ2 == None:
             motdepass(None)
-        elif Admin.get()=="admin":
+        elif Admin.get() == "admin":
             if verification_mdp_admin(champ.get(), champ2.get()):
                 session_Admin()
             else:
                 erreur_connexion()
-        elif Admin.get()=="client":
+        elif Admin.get() == "client":
             if verification_mdp_client(champ.get(), champ2.get()):
+                Numero_compte = champ.get()  # <-- ajouté
                 session_client()
             else:
                 erreur_connexion()
@@ -262,4 +281,3 @@ def session_client():
 ########### BOUCLE PRINCIPALES #####################################################
 console_debut()
 accueil()
-session_client()
