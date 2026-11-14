@@ -1,6 +1,7 @@
-# Participants : (écrivez vos noms ici)
+
 from tkinter import *
-from tkinter import ttk  # AJOUT : pour la liste déroulante (Combobox)
+from tkinter import ttk
+import tkinter.font as tkfont
 
 import sqlite3
 
@@ -10,8 +11,13 @@ from datetime import datetime, date
 
 try:
     import winsound
-except ImportError:  # Mac / Linux
+except ImportError:
     winsound = None
+
+# Les 3 polices utilisées dans tout le programme
+POLICE_TEXTE = "Arial"
+POLICE_TITRE = "Times New Roman"
+POLICE_CHIFFRES = "Courier New"
 
 
 def jouer_son():
@@ -23,26 +29,35 @@ def jouer_son():
         fenetre.bell()
 
 
-################ connexion base de donner #########
+################ connexion à la base de données #########
 
 connexion = sqlite3.connect("banque.db")
 cursor = connexion.cursor()
 
-############## CREER SI PAS EXISTANT / SOLDE BASE DE DONNER #########################33
-# pour transfert
+############## création des tables si elles n'existent pas #########################
+
+# table des virements
 cursor.execute("CREATE TABLE IF NOT EXISTS history (SENDER INTEGER, RECEIVER INTEGER, AMOUNT INTEGER, DATE)")
 
-# table pour account (fictif = 1 quand le compte est créé par l'admin)
+# table des comptes (fictif = 1 quand le compte est créé par l'admin)
 cursor.execute(
     "CREATE TABLE IF NOT EXISTS comptes (num_compte INTEGER, argent INTEGER, password TEXT, phrase_mot TEXT, fictif INTEGER DEFAULT 0)")
 try:
-    cursor.execute("ALTER TABLE comptes ADD COLUMN fictif INTEGER DEFAULT 0")  # ancienne base sans la colonne
+    cursor.execute("ALTER TABLE comptes ADD COLUMN fictif INTEGER DEFAULT 0")  # vieille base sans la colonne
 except sqlite3.OperationalError:
     pass  # la colonne existe déjà
-# table pour numeros account possible
+
+# deux comptes ne peuvent jamais avoir le même numéro
+try:
+    cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS numero_unique ON comptes (num_compte)")
+except sqlite3.Error:
+    pass  # une vieille base contient déjà des doublons
+
+# table des numéros de compte encore libres
 cursor.execute("CREATE TABLE IF NOT EXISTS numeros_restants (numero INTEGER)")
-########################### NUMERO DE COMPTE #################################
-# Première fois seulement : remplir la liste des numéros
+
+########################### NUMÉROS DE COMPTE #################################
+# Première fois seulement : on remplit la liste des numéros (101 à 110)
 cursor.execute("SELECT COUNT(*) FROM numeros_restants")
 nb_restants = cursor.fetchone()[0]
 cursor.execute("SELECT COUNT(*) FROM comptes")
@@ -52,10 +67,29 @@ if nb_restants == 0 and nb_comptes == 0:
         cursor.execute("INSERT INTO numeros_restants VALUES (?)", (n,))
     connexion.commit()
 
-# Ta liste vient maintenant de la base
-
+# La liste des numéros libres vient de la base
 cursor.execute("SELECT numero FROM numeros_restants")
 compte_num = [ligne[0] for ligne in cursor.fetchall()]
+
+
+def tirer_numero():
+    # choisit un numéro libre au hasard et vérifie qu'aucun compte ne l'a déjà
+    # s'il est déjà pris, on le jette et on en tire un autre
+    # retourne None s'il n'y a plus de numéro disponible
+    while len(compte_num) > 0:
+        num = random.choice(compte_num)
+        compte_num.remove(num)
+        conn = sqlite3.connect("banque.db")
+        curs = conn.cursor()
+        curs.execute("SELECT COUNT(*) FROM comptes WHERE num_compte = ?", (num,))
+        deja_pris = curs.fetchone()[0] > 0
+        if deja_pris:
+            curs.execute("DELETE FROM numeros_restants WHERE numero = ?", (num,))
+            conn.commit()
+        conn.close()
+        if not deja_pris:
+            return num
+    return None
 
 
 ########### CONSOLE ################
@@ -64,7 +98,7 @@ def console_debut():
     # menu de départ dans l'interpréteur (A = connexion, U = nouvel utilisateur)
     print("Bonjour :")
     print(" - Tapez A, pour vous connecter à l’Application.")
-    if len(compte_num) > 0:  # AJOUT : U n'apparaît plus quand les 10 numéros sont pris
+    if len(compte_num) > 0:  # quand les 10 numéros sont pris, U n'est plus proposé
         print(" - Tapez U, pour un nouvel Utilisateur.")
 
     choix = ""
@@ -72,50 +106,47 @@ def console_debut():
         choix = input()
         choix = choix.upper()
         if choix == "U" and len(compte_num) == 0:
-            choix = ""  # AJOUT : la touche U ne marche plus
+            choix = ""  # la touche U ne marche plus
         if choix == "U":
-            num_compte = random.choice(compte_num)
-            compte_num.remove(num_compte)
-            argent = random.randint(100, 500)
-            print(f"Bienvenue, voici votre numéro de compte {num_compte} ")
+            num_compte = tirer_numero()
+            if num_compte is None:
+                print("Plus aucun numéro de compte disponible.")
+                choix = ""
+            else:
+                argent = random.randint(100, 500)
+                print(f"Bienvenue, voici votre numéro de compte {num_compte} ")
 
-            password = input("Choisissez votre mot de passe et pressez sur ENTRÉE : ")
-            while len(password) != 3:  # AJOUT : exactement 3 caractères
-                password = input("Le mot de passe doit avoir exactement 3 caractères, réessayez : ")
-            password_conf = input("Confirmez votre mot de passe puis pressez sur ENTRÉE : ")
-            while password_conf != password:
-                password_conf = input("Les mots de passe ne correspondent pas, réessayez : ")
-            print("Indiquez une phrase pour vous rappeler du mot de passe et pressez sur ENTRÉE.")
-            phrase_mot = input()
+                password = input("Choisissez votre mot de passe et pressez sur ENTRÉE : ")
+                while len(password) != 3:  # exactement 3 caractères
+                    password = input("Le mot de passe doit avoir exactement 3 caractères, réessayez : ")
+                password_conf = input("Confirmez votre mot de passe puis pressez sur ENTRÉE : ")
+                while password_conf != password:
+                    password_conf = input("Les mots de passe ne correspondent pas, réessayez : ")
+                print("Indiquez une phrase pour vous rappeler du mot de passe et pressez sur ENTRÉE.")
+                phrase_mot = input()
 
-            # Base de données METTRE LES INFOS RECOLTER
-            cursor.execute("DELETE FROM numeros_restants WHERE numero = ?", (num_compte,))
-            cursor.execute("INSERT INTO comptes(num_compte, argent, password, phrase_mot) VALUES (?, ?, ?, ?)",
-                           (num_compte, argent, password, phrase_mot))
-            connexion.commit()
-
-        ### SI A ECRAN APPARAIT
+                # on enregistre les infos dans la base de données
+                cursor.execute("DELETE FROM numeros_restants WHERE numero = ?", (num_compte,))
+                cursor.execute("INSERT INTO comptes(num_compte, argent, password, phrase_mot) VALUES (?, ?, ?, ?)",
+                               (num_compte, argent, password, phrase_mot))
+                connexion.commit()
 
     connexion.close()
 
 
-#########MDP ADMIN ###############################################
+######### MOT DE PASSE ADMIN ###############################################
 
 password_adm = "123"
 nom_adm = "adm"
 
 
-############################ FONCTION RECOLTE BASE DE DONNER ET MODIFIER ####################
+############################ FONCTIONS DE LA BASE DE DONNÉES ####################
 
-
-## FONCTION RECOLTE MOTS DE PASSE CELON LE NOM DE L'utilisateur
-
-## verification #####
-def verification_mdp_client(numero_compte, mots_depasses):
+def verification_mdp_client(numero_compte, mdp):
     # vrai si le numéro de compte et le mot de passe correspondent
     try:
         numero_compte = int(numero_compte)
-    except ValueError:  # AJOUT : le numéro n'est pas un nombre
+    except ValueError:  # le numéro n'est pas un nombre
         return False
     conn = sqlite3.connect("banque.db")
     curs = conn.cursor()
@@ -126,23 +157,21 @@ def verification_mdp_client(numero_compte, mots_depasses):
 
     if resultat is None:
         return False  # compte inexistant
-    return resultat[0] == mots_depasses
-
-    ############## Recolte numeros ###########
+    return resultat[0] == mdp
 
 
-def verification_mdp_admin(numero_compte, mots_depasses):
+def verification_mdp_admin(identifiant, mdp):
     # vrai si l'identifiant et le mot de passe admin sont bons
-    return numero_compte == nom_adm and password_adm == mots_depasses
+    return identifiant == nom_adm and password_adm == mdp
 
 
-def Motsdepasses_oublié():
-    # MODIF : le numéro et la phrase de rappel sont demandés dans l'interpréteur
+def mot_de_passe_oublie():
+    # le numéro et la phrase de rappel sont demandés dans l'interpréteur
     numero = input("Numéro de compte : ")
     phrase = input("Phrase de rappel : ")
     try:
         numero = int(numero)
-    except ValueError:  # numéro pas un nombre
+    except ValueError:  # le numéro n'est pas un nombre
         print("Vous n'avez pas de compte client")
         return
 
@@ -174,7 +203,7 @@ def info_compte(numero_compte):
 
 
 def liste_destinataires(sender):
-    # AJOUT : comptes réels (pas fictifs) sauf soi-même
+    # les comptes réels (pas fictifs), sauf soi-même
     conn = sqlite3.connect("banque.db")
     curs = conn.cursor()
     curs.execute("SELECT num_compte FROM comptes WHERE fictif = 0 AND num_compte != ? ORDER BY num_compte",
@@ -194,7 +223,7 @@ def transfert(receiver, sender, amount):
         return "Vous ne pouvez pas vous envoyer de l'argent"
     if amount <= 0:
         return "Le montant doit être positif"
-    if receiver not in liste_destinataires(sender):  # MODIF : seulement les comptes réels
+    if receiver not in liste_destinataires(sender):  # seulement les comptes réels
         return "Compte destinataire inexistant"
     if info_compte(sender)[0][0] < amount:
         return "Solde insuffisant"
@@ -223,7 +252,7 @@ def modifier_balance(numero_compte, nouvelle_balance):
     return ok
 
 
-def modifier_mots_passe(numero_compte, nouveau_mdp):
+def modifier_mot_de_passe(numero_compte, nouveau_mdp):
     # change le mot de passe d'un compte
     conn = sqlite3.connect("banque.db")
     curs = conn.cursor()
@@ -235,8 +264,8 @@ def modifier_mots_passe(numero_compte, nouveau_mdp):
     return ok
 
 
-def recuperer_TOUTacoount():
-    """Retourne une liste de tuples : [(num_compte, argent, password), ...]"""
+def recuperer_tous_les_comptes():
+    # retourne une liste de tuples : [(num_compte, argent, password), ...]
     conn = sqlite3.connect("banque.db")
     curs = conn.cursor()
     curs.execute("SELECT num_compte, argent, password FROM comptes ORDER BY num_compte")
@@ -253,7 +282,7 @@ def supprimer_compte(numero_compte):
     curs.execute("DELETE FROM comptes WHERE num_compte = ?", (numero_compte,))
     ok = curs.rowcount > 0
     if ok:
-        # le numéro redevient disponible, et son historique est effacé
+        # le numéro redevient libre et son historique est effacé
         # pour qu'un futur compte avec ce numéro ne l'hérite pas
         curs.execute("DELETE FROM history WHERE SENDER = ? OR RECEIVER = ?",
                      (numero_compte, numero_compte))
@@ -266,12 +295,11 @@ def supprimer_compte(numero_compte):
 
 
 def ajouter_compte_fictif():
-    # AJOUT : l'admin reçoit un nouveau compte fictif (s'il reste un numéro libre)
-    if len(compte_num) == 0:
+    # l'admin reçoit un nouveau compte fictif (s'il reste un numéro libre)
+    num_compte = tirer_numero()
+    if num_compte is None:
         print("Plus aucun numéro de compte disponible.")
         return False
-    num_compte = random.choice(compte_num)
-    compte_num.remove(num_compte)
     argent = random.randint(100, 500)
     password = "".join(random.choices("abcdefghijklmnopqrstuvwxyz0123456789", k=3))  # 3 caractères au hasard
     conn = sqlite3.connect("banque.db")
@@ -337,7 +365,7 @@ def chart(parent, compte, actuel, width=500, height=300):
     end = dates[-1]
     middle = start + (end - start) / 2
 
-    # Calcul automatique du minimum et maximum
+    # minimum et maximum du graphique
     plus_bas = min(values)
     plus_haut = max(values)
 
@@ -370,7 +398,7 @@ def chart(parent, compte, actuel, width=500, height=300):
     # Axe X
     canvas.create_line(
         margin_left, height - margin_bottom,
-                     width - margin_right, height - margin_bottom,
+        width - margin_right, height - margin_bottom,
         fill="black"
     )
 
@@ -378,13 +406,15 @@ def chart(parent, compte, actuel, width=500, height=300):
     canvas.create_text(
         margin_left - 10, py(plus_bas),
         text=str(plus_bas),
-        anchor="e"
+        anchor="e",
+        font=(POLICE_CHIFFRES, 9)
     )
 
     canvas.create_text(
         margin_left - 10, py(plus_haut),
         text=str(plus_haut),
-        anchor="e"
+        anchor="e",
+        font=(POLICE_CHIFFRES, 9)
     )
 
     # Valeur actuelle
@@ -394,7 +424,7 @@ def chart(parent, compte, actuel, width=500, height=300):
             text=str(actuel),
             anchor="e",
             fill="blue",
-            font=("Arial", 9, "bold")
+            font=(POLICE_CHIFFRES, 9, "bold")
         )
 
         canvas.create_line(
@@ -417,10 +447,10 @@ def chart(parent, compte, actuel, width=500, height=300):
         canvas.create_text(
             x, height - margin_bottom + 17,
             text=d.strftime("%d/%m/%y %H:%M"),
-            font=("Arial", 8)
+            font=(POLICE_CHIFFRES, 8)
         )
 
-    # Courbe uniquement
+    # La courbe
     coords = []
 
     for p in points:
@@ -441,92 +471,113 @@ def chart(parent, compte, actuel, width=500, height=300):
 ############################# ACCUEIL ############################
 def erreur_connexion():
     # fenêtre d'erreur quand la connexion ne marche pas
-    top = Toplevel(fenetre)  # lié à la fenêtre principale
+    top = Toplevel(fenetre)
     top.title("Erreur")
     top.geometry("300x100")
     top.resizable(0, 0)
 
-    # le bouton est empaqueté en premier pour rester tout en bas
+    # le bouton est mis en premier pour rester tout en bas
     Button(top, text="OK", width=8, command=top.destroy).pack(side=BOTTOM, pady=5)
 
     Label(top, text="Renseignements d'ouverture de session erronés",
-          font=("Arial", 9, "bold"), wraplength=280).pack(pady=(8, 2))
+          font=(POLICE_TEXTE, 9, "bold"), wraplength=280).pack(pady=(8, 2))
     Label(top, text="Veuillez vérifier vos données de connexion et réessayer",
           wraplength=280).pack()
 
 
 def rouvrir_accueil():
-    # AJOUT : on vide les champs et on réaffiche l'écran 1
+    # on vide les champs, on recache le mot de passe et on réaffiche l'écran 1
     champ.delete(0, END)
     champ2.delete(0, END)
+    label_mdp.place_forget()
+    champ2.place_forget()
     fenetre.deiconify()
+    champ.focus()
 
 
 def accueil():
     # écran 1 : connexion client / admin
-    global fenetre, Numero_compte, Admin, champ, champ2
+    global fenetre, Admin, champ, champ2, label_mdp
     fenetre = Tk()
     fenetre.title("Accueil")
     fenetre.geometry("400x600")
-    fenetre.resizable(0, 0)  # AJOUT : taille non modifiable
-    Label(fenetre, text="Banque Grasséenne").pack(pady=20)
+    fenetre.resizable(0, 0)  # taille non modifiable
+
+    # Les widgets sans police précise prennent la police par défaut de Tkinter.
+    # On la remplace pour n'avoir que nos 3 polices dans tout le programme.
+    for nom in ("TkDefaultFont", "TkTextFont", "TkMenuFont", "TkHeadingFont",
+                "TkCaptionFont", "TkSmallCaptionFont", "TkIconFont", "TkTooltipFont"):
+        tkfont.nametofont(nom).configure(family=POLICE_TEXTE)
+    tkfont.nametofont("TkFixedFont").configure(family=POLICE_CHIFFRES)
+
+    Label(fenetre, text="Banque Grasséenne", font=(POLICE_TITRE, 16, "bold")).pack(pady=20)
     Label(fenetre, text="Type de connexion").pack()
     Admin = StringVar()  # variable Tkinter, pas un booléen
     Admin.set("client")
 
-    def désactiver():
+    def desactiver():
         # grise le bouton "mot de passe oublié" en mode admin
         if Admin.get() == "admin":
-            Bouton2.config(state="disabled")  # bouton grisé, non cliquable
+            Bouton2.config(state="disabled")
         else:
             Bouton2.config(state="normal")
 
-    Radiobutton(fenetre, text="Admin", variable=Admin, value="admin", command=désactiver).pack(anchor=CENTER)
-    Radiobutton(fenetre, text="Client", variable=Admin, value="client", command=désactiver).pack(anchor=CENTER)
+    Radiobutton(fenetre, text="Admin", variable=Admin, value="admin", command=desactiver).pack(anchor=CENTER)
+    Radiobutton(fenetre, text="Client", variable=Admin, value="client", command=desactiver).pack(anchor=CENTER)
 
     Label(fenetre, text="Numéro de compte").pack(pady=10)
     champ = Entry(fenetre)
     champ.pack(pady=10)
-    Numero_compte = champ.get()
 
-    # MODIF : le champ du mot de passe est visible tout de suite (3 caractères max, caché par des *)
     def max3(texte):
         # refuse un 4e caractère
         return len(texte) <= 3
 
-    Label(fenetre, text="Mots de passes").place(relx=0.5, rely=0.4, anchor=CENTER)
+    # Le mot de passe est caché grâce à show="*" : le texte tapé est bien gardé
+    # dans le champ (champ2.get() le retrouve) mais Tkinter affiche des * à la place.
+    # validate="key" appelle max3 à chaque touche pour limiter à 3 caractères.
+    # On les crée ici mais on ne les place pas : ils apparaissent après ENTRÉE.
+    label_mdp = Label(fenetre, text="Mot de passe")
     champ2 = Entry(fenetre, show="*", validate="key", validatecommand=(fenetre.register(max3), "%P"))
-    champ2.place(relx=0.5, rely=0.45, anchor=CENTER)
 
-    champ.bind("<Return>", lambda event: champ2.focus())  # ENTRÉE passe au mot de passe
+    def montrer_mdp(event=None):
+        # affiche le champ du mot de passe et met le curseur dedans
+        label_mdp.place(relx=0.5, rely=0.4, anchor=CENTER)
+        champ2.place(relx=0.5, rely=0.45, anchor=CENTER)
+        champ2.focus()
 
-    def connexion():
+    champ.bind("<Return>", montrer_mdp)  # ENTRÉE dans le numéro de compte
+
+    def ouvrir_session():
         # vérifie les infos puis ouvre l'écran client ou admin
         global Numero_compte
+        if champ2.winfo_manager() == "":  # le mot de passe n'est pas encore affiché
+            montrer_mdp()
+            return
         if Admin.get() == "admin":
             if verification_mdp_admin(champ.get(), champ2.get()):
-                fenetre.withdraw()  # AJOUT : on cache l'écran 1
+                fenetre.withdraw()  # on cache l'écran 1
                 session_Admin()
             else:
                 erreur_connexion()
         elif Admin.get() == "client":
             if verification_mdp_client(champ.get(), champ2.get()):
-                Numero_compte = champ.get()  # <-- ajouté
-                fenetre.withdraw()  # AJOUT : on cache l'écran 1
+                Numero_compte = champ.get()
+                fenetre.withdraw()  # on cache l'écran 1
                 session_client()
             else:
                 erreur_connexion()
 
-    Bouton1 = Button(fenetre, text="Ouvrir une session", command=connexion)
+    Bouton1 = Button(fenetre, text="Ouvrir une session", command=ouvrir_session)
     Bouton1.place(relx=0.5, rely=0.6, anchor=CENTER)
-    Bouton2 = Button(fenetre, text="Mot de passe oublié ?", command=Motsdepasses_oublié)
+    Bouton2 = Button(fenetre, text="Mot de passe oublié ?", command=mot_de_passe_oublie)
     Bouton2.place(relx=0.5, rely=0.67, anchor=CENTER)
 
-    # AJOUT : animation d'une pièce qui rebondit (Canvas + after)
+    # animation d'une pièce qui rebondit (Canvas + after)
     canevas = Canvas(fenetre, width=300, height=50, highlightthickness=0)
     canevas.place(relx=0.5, rely=0.82, anchor=CENTER)
     piece = canevas.create_oval(5, 10, 35, 40, fill="gold", outline="orange")
-    signe = canevas.create_text(20, 25, text="$", font=("Arial", 12, "bold"))
+    signe = canevas.create_text(20, 25, text="$", font=(POLICE_CHIFFRES, 12, "bold"))
     vitesse = 4
 
     def animer():
@@ -539,8 +590,8 @@ def accueil():
             vitesse = -vitesse
         fenetre.after(30, animer)
 
-    # AJOUT : horloge en direct (timer avec after)
-    label_heure = Label(fenetre, font=("Arial", 9))
+    # horloge en direct (timer avec after)
+    label_heure = Label(fenetre, font=(POLICE_CHIFFRES, 9))
     label_heure.place(relx=0.5, rely=0.93, anchor=CENTER)
 
     def horloge():
@@ -553,15 +604,15 @@ def accueil():
     fenetre.mainloop()
 
 
-#######################################ADMIN#######################################################3
+#######################################ADMIN#######################################################
 
 def session_Admin():
     # écran 3 : interface administrateur
-    ajouter_compte_fictif()  # AJOUT : un nouveau compte fictif à chaque session admin
-    fenetre2 = Toplevel(fenetre)  # MODIF : Toplevel au lieu d'un 2e Tk()
+    ajouter_compte_fictif()  # un nouveau compte fictif à chaque session admin
+    fenetre2 = Toplevel(fenetre)
     fenetre2.title("Admin")
-    fenetre2.geometry("400x300")  # MODIF : 400x300 comme demandé
-    fenetre2.resizable(0, 0)  # AJOUT : taille non modifiable
+    fenetre2.geometry("400x300")
+    fenetre2.resizable(0, 0)  # taille non modifiable
     page_base = Frame(fenetre2)
     page_miseajour = Frame(fenetre2)
 
@@ -569,30 +620,44 @@ def session_Admin():
         # redessine la liste des comptes (page Base de données)
         for w in page_base.winfo_children():
             w.destroy()
-        liste = recuperer_TOUTacoount()
-        Label(page_base, text="Numéro de compte", font=("Arial", 8, "bold")).place(relx=0.2, rely=0.1, anchor=CENTER)
-        Label(page_base, text="Balance", font=("Arial", 8, "bold")).place(relx=0.5, rely=0.1, anchor=CENTER)
-        Label(page_base, text="Mots de passes", font=("Arial", 8, "bold")).place(relx=0.8, rely=0.1, anchor=CENTER)
+        liste = recuperer_tous_les_comptes()
+        Label(page_base, text="Numéro de compte", font=(POLICE_TEXTE, 8, "bold")).place(relx=0.2, rely=0.1, anchor=CENTER)
+        Label(page_base, text="Balance", font=(POLICE_TEXTE, 8, "bold")).place(relx=0.5, rely=0.1, anchor=CENTER)
+        Label(page_base, text="Mot de passe", font=(POLICE_TEXTE, 8, "bold")).place(relx=0.8, rely=0.1, anchor=CENTER)
+
+        labels_mdp = []  # (label, vrai mot de passe) pour chaque compte
         y = 0.15
-        for numero, balance, mots_de_passe in liste:
-            Label(page_base, text=numero, font=("Arial", 8)).place(relx=0.2, rely=y, anchor=CENTER)
-            Label(page_base, text=balance, font=("Arial", 8)).place(relx=0.5, rely=y, anchor=CENTER)
-            Label(page_base, text="***", font=("Arial", 8)).place(relx=0.8, rely=y, anchor=CENTER)
+        for numero, balance, mdp in liste:
+            Label(page_base, text=numero, font=(POLICE_CHIFFRES, 9)).place(relx=0.2, rely=y, anchor=CENTER)
+            Label(page_base, text=balance, font=(POLICE_CHIFFRES, 9)).place(relx=0.5, rely=y, anchor=CENTER)
+            label = Label(page_base, text="***", font=(POLICE_CHIFFRES, 9))
+            label.place(relx=0.8, rely=y, anchor=CENTER)
+            labels_mdp.append((label, mdp))
             y += 0.06
 
-        def montrer_motdepasse():
-            # affiche les vrais mots de passe
-            y = 0.15
-            for numero, balance, mots_de_passe in liste:
-                Label(page_base, text=mots_de_passe, font=("Arial", 8)).place(relx=0.8, rely=y, anchor=CENTER)
-                y += 0.06
+        visible = False  # au début les mots de passe sont cachés
 
-        Button(page_base, text="Show password", command=montrer_motdepasse).place(relx=0.5, rely=0.88, anchor=CENTER)
+        def changer_affichage():
+            # un seul bouton : Show password affiche, Hide password cache
+            nonlocal visible
+            visible = not visible
+            for label, mdp in labels_mdp:
+                if visible:
+                    label.config(text=mdp)
+                else:
+                    label.config(text="***")
+            if visible:
+                bouton_mdp.config(text="Hide password")
+            else:
+                bouton_mdp.config(text="Show password")
 
-    # AJOUT : page Mise à jour (supprimer un compte ou modifier son solde)
-    Label(page_miseajour, text="Mise à jour", font=("Arial", 14, "bold")).pack(pady=10)
+        bouton_mdp = Button(page_base, text="Show password", command=changer_affichage)
+        bouton_mdp.place(relx=0.5, rely=0.88, anchor=CENTER)
+
+    # page Mise à jour (supprimer un compte ou modifier son solde)
+    Label(page_miseajour, text="Mise à jour", font=(POLICE_TITRE, 14, "bold")).pack(pady=10)
     Label(page_miseajour, text="Compte à modifier").pack()
-    combo = ttk.Combobox(page_miseajour, state="readonly")  # nouveau widget : liste déroulante
+    combo = ttk.Combobox(page_miseajour, state="readonly")  # liste déroulante
     combo.pack(pady=5)
     Label(page_miseajour, text="Nouveau solde ($)").pack()
     champ_solde = Entry(page_miseajour)
@@ -603,14 +668,14 @@ def session_Admin():
     def rafraichir_admin():
         # met à jour la liste des comptes et la liste déroulante
         rafraichir_base()
-        combo["values"] = [ligne[0] for ligne in recuperer_TOUTacoount()]
+        combo["values"] = [ligne[0] for ligne in recuperer_tous_les_comptes()]
         combo.set("")
         champ_solde.delete(0, END)
 
-    def comfirmation(action):
-        # MODIF : le bouton Oui lance l'action demandée
-        top = Toplevel(page_miseajour)  # lié à la fenêtre principale
-        top.title("Comfirmation")
+    def confirmation(action):
+        # le bouton Oui lance l'action demandée
+        top = Toplevel(page_miseajour)
+        top.title("Confirmation")
         top.geometry("300x100")
         top.resizable(0, 0)
 
@@ -621,8 +686,8 @@ def session_Admin():
         Button(top, text="Oui", width=8, command=oui).place(relx=0.3, rely=0.8, anchor=CENTER)
         Button(top, text="Non", width=8, command=top.destroy).place(relx=0.7, rely=0.8, anchor=CENTER)
 
-        Label(top, text="Êtes-vous sûr?",
-              font=("Arial", 9, "bold"), wraplength=280).pack(pady=(8, 2))
+        Label(top, text="Êtes-vous sûr ?",
+              font=(POLICE_TEXTE, 9, "bold"), wraplength=280).pack(pady=(8, 2))
 
     def changer_solde():
         # vérifie le compte et le solde puis demande confirmation
@@ -640,7 +705,7 @@ def session_Admin():
             rafraichir_admin()
             label_msg.config(text=f"Solde du compte {numero} modifié", fg="green")
 
-        comfirmation(faire)
+        confirmation(faire)
 
     def effacer_compte():
         # vérifie le compte choisi puis demande confirmation
@@ -655,7 +720,7 @@ def session_Admin():
             rafraichir_admin()
             label_msg.config(text=f"Compte {numero} supprimé", fg="green")
 
-        comfirmation(faire)
+        confirmation(faire)
 
     Button(page_miseajour, text="Modifier le solde", command=changer_solde).pack(pady=3)
     Button(page_miseajour, text="Supprimer le compte", command=effacer_compte).pack(pady=3)
@@ -672,14 +737,14 @@ def session_Admin():
         rouvrir_accueil()
 
     menu = Menu(fenetre2)
-    menu.add_command(label="Base de données", command=lambda: afficher(page_base))  # MODIF : noms du menu
+    menu.add_command(label="Base de données", command=lambda: afficher(page_base))
     menu.add_command(label="Mise à jour", command=lambda: afficher(page_miseajour))
     menu.add_command(label="Quitter", command=quitter)
 
     fenetre2.config(menu=menu)
     fenetre2.protocol("WM_DELETE_WINDOW", quitter)  # la croix fait pareil que Quitter
     rafraichir_admin()
-    afficher(page_base)  # AJOUT : page affichée dès l'ouverture
+    afficher(page_base)  # page affichée dès l'ouverture
 
 
 ###################################################### client #########################
@@ -692,7 +757,7 @@ def succes_virement(montant, destinataire):
 
     Button(top, text="OK", width=8, command=top.destroy).pack(side=BOTTOM, pady=5)
 
-    Label(top, text="Virement effectué", font=("Arial", 9, "bold"), fg="green").pack(pady=(8, 2))
+    Label(top, text="Virement effectué", font=(POLICE_TEXTE, 9, "bold"), fg="green").pack(pady=(8, 2))
     Label(top, text=f"{montant} $ envoyé au compte {destinataire}", wraplength=280).pack()
 
 
@@ -705,7 +770,7 @@ def erreur_virement(message):
 
     Button(top, text="OK", width=8, command=top.destroy).pack(side=BOTTOM, pady=5)
 
-    Label(top, text="Virement refusé", font=("Arial", 9, "bold")).pack(pady=(8, 2))
+    Label(top, text="Virement refusé", font=(POLICE_TEXTE, 9, "bold")).pack(pady=(8, 2))
     Label(top, text=message, wraplength=280).pack()
 
 
@@ -714,22 +779,22 @@ def session_client():
     fenetre1 = Toplevel(fenetre)
     fenetre1.title("Client")
     fenetre1.geometry("400x600")
-    fenetre1.resizable(0, 0)  # AJOUT : taille non modifiable
-    Label(fenetre1, text="Banque Grasséenne", font=("Arial", 10, "bold")).pack(pady=5)  # AJOUT : nom de la banque
+    fenetre1.resizable(0, 0)  # taille non modifiable
+    Label(fenetre1, text="Banque Grasséenne", font=(POLICE_TITRE, 12, "bold")).pack(pady=5)
     page_compte = Frame(fenetre1)
-    Label(page_compte, text="Mon Compte", font=("Arial", 14, "bold")).pack(pady=10)
-    label_num = Label(page_compte)  # AJOUT : numéro de compte
+    Label(page_compte, text="Mon Compte", font=(POLICE_TITRE, 14, "bold")).pack(pady=10)
+    label_num = Label(page_compte, font=(POLICE_CHIFFRES, 10))  # numéro de compte
     label_num.pack()
-    label_solde = Label(page_compte)
+    label_solde = Label(page_compte, font=(POLICE_CHIFFRES, 10))
     label_solde.pack()
-    label_nb = Label(page_compte)  # AJOUT : nombre de virements effectués
+    label_nb = Label(page_compte, font=(POLICE_CHIFFRES, 10))  # nombre de virements effectués
     label_nb.pack()
     zone_chart = Frame(page_compte)
     zone_chart.pack()
 
-    Label(page_compte, text="Historique", font=("Arial", 11, "bold")).pack(pady=(10, 2))  # MODIF : dans page_compte
-    zone_histo = Frame(page_compte)  # MODIF : dans page_compte
-    zone_histo.pack()  # MODIF
+    Label(page_compte, text="Historique", font=(POLICE_TITRE, 12, "bold")).pack(pady=(10, 2))
+    zone_histo = Frame(page_compte)
+    zone_histo.pack()
 
     def rafraichir():
         # met à jour le solde, le graphique, l'historique et la liste des bénéficiaires
@@ -742,22 +807,22 @@ def session_client():
         label_nb.config(text=f"Virements effectués : {nb_virements}")
         for w in zone_chart.winfo_children():
             w.destroy()
-        chart(zone_chart, Numero_compte, solde, width=380, height=220).pack()  # MODIF : un peu plus petit
+        chart(zone_chart, Numero_compte, solde, width=380, height=220).pack()
 
         for w in zone_histo.winfo_children():
             w.destroy()
         for i, (sender, receiver, amount, d) in enumerate(
-                reversed(historique[-6:])):  # MODIF : 6 derniers pour tenir sous le graphique
+                reversed(historique[-6:])):  # les 6 derniers pour tenir sous le graphique
             if sender == int(Numero_compte):
                 fleche, autre, montant, couleur = "↑", receiver, f"-{amount} $", "red"
             else:
                 fleche, autre, montant, couleur = "↓", sender, f"+{amount} $", "green"
-            Label(zone_histo, text=fleche, fg=couleur, font=("Arial", 12, "bold")).grid(row=i, column=0, padx=5)
+            Label(zone_histo, text=fleche, fg=couleur, font=(POLICE_TEXTE, 12, "bold")).grid(row=i, column=0, padx=5)
             Label(zone_histo, text=f"Compte {autre}", fg=couleur).grid(row=i, column=1, padx=5, sticky="w")
-            Label(zone_histo, text=montant, fg=couleur, font=("Arial", 10, "bold")).grid(row=i, column=2, padx=5)
-            Label(zone_histo, text=d[:16], fg="gray", font=("Arial", 8)).grid(row=i, column=3, padx=5)
+            Label(zone_histo, text=montant, fg=couleur, font=(POLICE_CHIFFRES, 10, "bold")).grid(row=i, column=2, padx=5)
+            Label(zone_histo, text=d[:16], fg="gray", font=(POLICE_CHIFFRES, 8)).grid(row=i, column=3, padx=5)
 
-        # AJOUT : boutons radio avec les comptes disponibles
+        # boutons radio avec les comptes disponibles
         for w in zone_dest.winfo_children():
             w.destroy()
         dest.set("")
@@ -768,8 +833,8 @@ def session_client():
             Radiobutton(zone_dest, text=f"Compte {n}", variable=dest, value=str(n)).pack(anchor="w")
 
     page_virement = Frame(fenetre1)
-    Label(page_virement, text="Virements", font=("Arial", 14, "bold")).pack(pady=10)
-    Label(page_virement, text="Choisissez le bénéficiaire").pack()  # MODIF : radio au lieu d'un champ à taper
+    Label(page_virement, text="Virements", font=(POLICE_TITRE, 14, "bold")).pack(pady=10)
+    Label(page_virement, text="Choisissez le bénéficiaire").pack()
     dest = StringVar()  # numéro du bénéficiaire choisi
     zone_dest = Frame(page_virement)
     zone_dest.pack(pady=5)
@@ -777,27 +842,26 @@ def session_client():
     champ4 = Entry(page_virement)
     champ4.pack()
 
-    def virment():
-        # MODIF : indentation corrigée, tout est dans la fonction
+    def virement():
         if dest.get() == "":
             erreur_virement("Choisissez un bénéficiaire")
             return
-        message = transfert(dest.get(), Numero_compte, champ4.get())  # MODIF : message en minuscule
+        message = transfert(dest.get(), Numero_compte, champ4.get())
         if message != "Virement effectué":
             erreur_virement(message)
         else:
-            jouer_son()  # AJOUT
+            jouer_son()
             succes_virement(champ4.get(), dest.get())
         champ4.delete(0, END)
         rafraichir()
 
-    Button(page_virement, text="Envoyer", command=virment).pack(pady=10)
+    Button(page_virement, text="Envoyer", command=virement).pack(pady=10)
 
     def afficher(page):
         # montre une seule page à la fois
         page_compte.pack_forget()
         page_virement.pack_forget()
-        page.pack(fill=BOTH, expand=True)  # MODIF : ligne page_historique.pack_forget() supprimée
+        page.pack(fill=BOTH, expand=True)
 
     def fermer():
         # ferme l'écran 2 et rouvre l'écran 1
@@ -807,7 +871,6 @@ def session_client():
     menu = Menu(fenetre1)
     menu.add_command(label="Mon Compte", command=lambda: afficher(page_compte))
     menu.add_command(label="Virements", command=lambda: afficher(page_virement))
-    # MODIF : entrée de menu "Historique" supprimée
     menu.add_command(label="Fermer la session", command=fermer)
 
     fenetre1.config(menu=menu)
@@ -816,10 +879,6 @@ def session_client():
     afficher(page_compte)
 
 
-########### BOUCLE PRINCIPALES #####################################################
-# console_debut()
-# accueil()
-
-########### BOUCLE PRINCIPALES #####################################################
+########### BOUCLE PRINCIPALE #####################################################
 console_debut()
 accueil()
